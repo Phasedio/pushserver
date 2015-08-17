@@ -1,0 +1,12 @@
+{
+  "name": "phasedio-push",
+  "description": "a delightfully fruity coffee varietal",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node app.js"
+  },
+  "dependencies": {
+    "node-parse-api": "^0.3.7",
+    "restify": "^4.0.0"
+  }
+}
