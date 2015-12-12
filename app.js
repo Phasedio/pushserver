@@ -25,6 +25,7 @@ var APP_ID = 'S1R7aIPJPXKPPF2cOcFkJ9zluitibxyOjjvUZWfg';
 var MASTER_KEY = 'EWYQKz5ZEbC7i7tPTbk5V5Mq30yJXXGXAJgRLGUP';
 
 var app = new Parse(APP_ID, MASTER_KEY);
+var PhasedNumber = '+12263180675';
 
 function register(req, res, next){
   console.log('got reg');
@@ -76,9 +77,10 @@ function pushNudge(req, res, next){
       "sound" : "default"
     }
   };
+  console.log(req.params);
   app.sendPush(notification, function(err, resp){
     console.log(resp);
-    res.send('hello ' + req.params.name);
+    res.send('Hello, ' + req.params.sender);
   });
 }
 
@@ -206,13 +208,11 @@ function uitSlack(req, res, next){
 
 function twiliPush(req, res, next){
   //Send an SMS text message
-client.sendMessage({
-
+  client.sendMessage({
     to:'+19025780701', // Any number Twilio can deliver to
-    from: '+12263180675', // A number you bought from Twilio and can use for outbound communication
+    from: PhasedNumber, // A number you bought from Twilio and can use for outbound communication
     body: 'word to your mother.' // body of the SMS message
-
-}, function(err, responseData) { //this function is executed when a response is received from Twilio
+  }, function(err, responseData) { //this function is executed when a response is received from Twilio
 
     if (!err) { // "err" is an error received during the request, if any
 
@@ -222,20 +222,50 @@ client.sendMessage({
 
         console.log(responseData.from); // outputs "+14506667788"
         console.log(responseData.body); // outputs "word to your mother."
-
-    }
-});
+      }
+  });
 }
 function smsRecived(req, res, next){
-  //console.log(req.body);
+  console.log('sms received');
+  consoel.log(req);
   var msg = req.body;
   console.log(msg.From);
   var text = req.body.Body;
-  new Firebase("https://phaseddev.firebaseio.com/profile").orderByChild('tel').startAt(msg.From)
-    .endAt(msg.From)
-    .once('value', function(snap) {
-      console.log('these are the accounts');
 
+  // get # route from body if in first position
+  text = text.trim(); // trim whitespaces
+  var hashRoute = 'update'; // default to update
+  if (text.indexOf('#') == 0) {
+    // if there is a hash in the first place, split it out and keep the rest of the message
+    text = text.split('#')[1].split(' ');
+    hashRoute = text[0];
+    text = text[1];
+  }
+
+  switch (hashRoute) {
+    case 'update' :
+      updateStatus(text, msg.From);
+      break;
+    case 'tasks' :
+      sendTasks(msg.From);
+      break;
+    case 'team' : 
+      sendTeamStatus(msg.From);
+      break;
+    default:
+      console.log('smsRecived but I don\'t know what to do with it!', text);
+      return;
+  }
+
+  //thisRes.status(200).type('application/json').end();
+  //ref.child('team').child('Phased').child('task').child('simplelogin:1').set(status);
+  //ref.child('team').child('Phased').child('all').child('simplelogin:1').push(status);
+}
+
+function updateStatus(status, tel) {
+  new Firebase("https://phaseddev.firebaseio.com/profile").orderByChild('tel').startAt(tel)
+    .endAt(tel)
+    .once('value', function(snap) {
        var data = snap.val();
        if(data){
          var keys = Object.keys(data);
@@ -243,7 +273,7 @@ function smsRecived(req, res, next){
          var team = data[user].curTeam;
 
          var status = {
-           name: text,
+           name: status,
            time: new Date().getTime(),
            user:user,
            city:'',
@@ -258,17 +288,81 @@ function smsRecived(req, res, next){
 
          ref.child('team').child(team).child('task').child(user).set(status);
          ref.child('team').child(team).child('all').child(user).push(status);
-
+         console.log('status updated');
        }
-
-
     });
+}
 
-  console.log(text);
+/**
+*
+* sends the numTasks most recent assignments to tel
+*
+* 1. get the user's id from FireBase (/profiles)
+* 2. get the assignment ids from FireBase (/team/[team]/assignments/to/[userID])
+* 3. get the assignments from FireBase (/team/[team]/assignments/all)
+*
+*/
+function sendTasks(tel, numTasks) {
+  numTasks = numTasks || 10;
+  console.log('getting tasks for', tel);
+  // 1.
+  getProfileFromTel(tel)
+    .then(function(profile){
+      // 2.
+      ref.child("team/" + profile.curTeam + "/assignments/to/" + profile.uid).once('value', function(data) {
+        taskList = data.val();
+        if (!taskList) {
+          // no tasks assigned to this user, let them know and gracefully exit;
+          console.log('no assignments', taskList);
+          client.sendMessage({
+            to : tel,
+            from : PhasedNumber,
+            body : 'No tasks assigned to you, ' + profile.name
+          });
+          return;
+        } else {
+          // 3.
+          // there are tasks, get them
+          ref.child('team/' + profile.curTeam + '/assignments/all').orderByChild('assignee')
+            .equalTo(profile.uid)
+            .once('value', function(data) {
+              var myTasks = data.val();
+              if (!myTasks) {
+                console.log('no tasks???', myTasks);
+                return;
+              }
 
-  //thisRes.status(200).type('application/json').end();
-  //ref.child('team').child('Phased').child('task').child('simplelogin:1').set(status);
-  //ref.child('team').child('Phased').child('all').child('simplelogin:1').push(status);
+              // sort tasks by date since FB only allows one orderBy param
+              // reverse chronologically: most recent assignments first
+              myTasks = objToArray(myTasks);
+              myTasks.sort(function(a, b){
+                  if(a.time < b.time) return 1;
+                  if(a.time > b.time) return -1;
+                  return 0;
+              });
+              // console.log(myTasks);
+
+              // generate message
+              var msg = '',
+                i = 0;
+              for (i; i < myTasks.length && i < numTasks; i++) {
+                msg += '(' + (i+1) +') ' +
+                  myTasks[i].name + '\r\n';
+              }
+              msg =  'Your ' + i + ' most recently assigned tasks:\n\r' + msg;
+              console.log(msg);
+              client.sendMessage({
+                to : tel,
+                from : PhasedNumber,
+                body : msg
+              }, function(e) { console.log(e) });
+            });
+        }
+      });
+    })
+    .catch(function(e){
+      console.log(e);
+    })
 }
 
 // returns a promise that delivers the user object in .then();
@@ -291,6 +385,17 @@ function getProfileFromTel(tel) {
   return p;
 }
 
+// convert object into array
+// useful for arrays with missing keys
+// eg, [0 = '', 1 = '', 3 = ''];
+var objToArray = function(obj) {
+  var newArray = [];
+  for (var i in obj) {
+    newArray.push(obj[i]);
+  }
+  return newArray;
+}
+
 var server = restify.createServer();
 server.use(restify.bodyParser({ mapParams: false }));
 //server.get('/hello/:name', respond);
@@ -305,4 +410,14 @@ server.post('/slack/uit', uitSlack);
 
 server.listen(8080, function() {
   console.log('%s listening at %s', server.name, server.url);
+
+
+  sendTasks('+19056993939');
+  // getProfileFromTel('+17786797693')
+  // .then(function(profile){
+  //   console.log('profile got', profile);
+  // })
+  // .catch(function(reason){
+  //   console.log('no profile got', reason);
+  // });
 });
