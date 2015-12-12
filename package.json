@@ -13,6 +13,7 @@
     "node-parse-api": "^0.3.7",
     "request": "^2.67.0",
     "restify": "^4.0.0",
-    "twilio": "^2.5.2"
+    "twilio": "^2.5.2",
+    "promise": "^6.1.0"
   }
 }

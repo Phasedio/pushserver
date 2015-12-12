@@ -8,6 +8,7 @@ var FirebaseTokenGenerator = require("firebase-token-generator");
 var request = require('request');
 var curl = require('curlrequest');
 var client = require('twilio')('ACa18b9467c994bf9c72ccc5f23e91f735', '8516dd1bd8336820ec1919dd346c286a');
+var Promise = require('promise');
 
 
 var ref = new Firebase("https://phaseddev.firebaseio.com/");
@@ -270,6 +271,25 @@ function smsRecived(req, res, next){
   //ref.child('team').child('Phased').child('all').child('simplelogin:1').push(status);
 }
 
+// returns a promise that delivers the user object in .then();
+function getProfileFromTel(tel) {
+  var p = new Promise( function(resolve, reject) {
+    ref.child("profile").orderByChild('tel').equalTo(tel)
+      // .endAt(tel)
+      .once('value', function(data){
+        data = data.val();
+        if (data) {
+          var keys = Object.keys(data);
+          var profile = data[keys[0]];
+          profile.uid = keys[0];
+          resolve(profile);
+        } else {
+          reject('no data');
+        }
+      });
+    });
+  return p;
+}
 
 var server = restify.createServer();
 server.use(restify.bodyParser({ mapParams: false }));
