@@ -251,6 +251,9 @@ function smsRecived(req, res, next){
     case 'team' : 
       sendTeam(msg.From);
       break;
+    case 'help' :
+      sendHelp(msg.From);
+      break;
     default:
       console.log('smsRecived but I don\'t know what to do with it!', hashRoute, text);
       return;
@@ -453,6 +456,25 @@ function sendTeam(tel, numMembers) {
       console.log('caught');
       console.log(e);
     });
+}
+
+/**
+*
+* sends a simple usage message to tel
+*
+*/
+function sendHelp(tel) {
+  console.log('sending a help message');
+  var msg = 'How to use the Phased.io SMS service:\r\n' +
+    'send a message without a #command to update your status\r\n' +
+    'send #team to get your team\'s recent updates\r\n' + 
+    'send #tasks to get your to do list\r\n' +
+    'send #help to see these notes again';
+  client.sendMessage({
+    to: tel,
+    from: PhasedNumber,
+    body: msg
+  });
 }
 
 // returns a promise that delivers the user object in .then();
