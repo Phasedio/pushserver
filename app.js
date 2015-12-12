@@ -227,9 +227,7 @@ function twiliPush(req, res, next){
 }
 function smsRecived(req, res, next){
   console.log('sms received');
-  consoel.log(req);
   var msg = req.body;
-  console.log(msg.From);
   var text = req.body.Body;
 
   // get # route from body if in first position
@@ -246,6 +244,7 @@ function smsRecived(req, res, next){
     case 'update' :
       updateStatus(text, msg.From);
       break;
+    case 'task' :
     case 'tasks' :
       sendTasks(msg.From);
       break;
@@ -253,7 +252,7 @@ function smsRecived(req, res, next){
       sendTeam(msg.From);
       break;
     default:
-      console.log('smsRecived but I don\'t know what to do with it!', text);
+      console.log('smsRecived but I don\'t know what to do with it!', hashRoute, text);
       return;
   }
 
@@ -388,7 +387,6 @@ function sendTeam(tel, numMembers) {
         .orderByChild('time')
         .limitToFirst(numMembers)
         .once('value', function(data) {
-          console.log('once');
           tasks = data.val();
 
           if (!tasks) {
