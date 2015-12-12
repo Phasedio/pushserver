@@ -272,7 +272,7 @@ function updateStatus(status, tel) {
          var user = keys[0];
          var team = data[user].curTeam;
 
-         var status = {
+         var newStatus = {
            name: status,
            time: new Date().getTime(),
            user:user,
@@ -286,8 +286,9 @@ function updateStatus(status, tel) {
            }
          };
 
-         ref.child('team').child(team).child('task').child(user).set(status);
-         ref.child('team').child(team).child('all').child(user).push(status);
+         console.log('updating status...');
+         ref.child('team').child(team).child('task').child(user).set(newStatus);
+         ref.child('team').child(team).child('all').child(user).push(newStatus);
          console.log('status updated');
        }
     });
