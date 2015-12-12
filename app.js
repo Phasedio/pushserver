@@ -250,7 +250,7 @@ function smsRecived(req, res, next){
       sendTasks(msg.From);
       break;
     case 'team' : 
-      sendTeamStatus(msg.From);
+      sendTeam(msg.From);
       break;
     default:
       console.log('smsRecived but I don\'t know what to do with it!', text);
@@ -365,6 +365,87 @@ function sendTasks(tel, numTasks) {
     })
 }
 
+/**
+*
+* sends the numMembers most recently updated team members and their statuses to tel
+*
+* 1. get the user's id from FireBase 
+* 2. get the user's team members
+*
+*/
+
+function sendTeam(tel, numMembers) {
+  numMembers = numMembers || 10;
+
+  // 1.
+  getProfileFromTel(tel)
+    .then(function(profile) {
+      console.log('then ', profile.curTeam);
+      ref.child('team/' + profile.curTeam + '/task')
+        .orderByChild('time')
+        .limitToFirst(numMembers)
+        .once('value', function(data) {
+          console.log('once');
+          tasks = data.val();
+
+          if (!tasks) {
+            console.log('no recent updates');
+            client.sendMessage({
+              to : tel,
+              from : PhasedNumber,
+              body : 'No recent updates!'
+            });
+            return;
+          } else {
+            // sort tasks reverse chronologically
+            tasks = objToArray(tasks);
+            tasks.sort(function(a, b){
+                if(a.time < b.time) return 1;
+                if(a.time > b.time) return -1;
+                return 0;
+            });
+
+            // get team users to get member names
+            ref.child('profile')
+              .orderByChild('curTeam')
+              .equalTo(profile.curTeam)
+              .once('value', function(data) {
+                console.log('else once');
+
+                var users = data.val();
+                if (!users) return;
+                
+                // make message
+                var msg = 'Recent updates for ' + profile.curTeam + '\r\n';
+                var weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+                var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+                for (var i in tasks) {
+                  if (users[tasks[i].user]) {
+                    var date = new Date(tasks[i].time);
+                    msg += users[tasks[i].user].name + ': ' + tasks[i].name + ' ';
+                    msg += '(' + weekdays[date.getDay()] + ' ' + months[date.getMonth()] + ' ' + date.getDate() + ')';
+                    msg += '\r\n';
+                  }
+                }
+
+                console.log('sending team update');
+                client.sendMessage({
+                  to : tel,
+                  from : PhasedNumber,
+                  body : msg
+                }, function(e){console.log('sent', e)});
+              });
+          }
+        });
+    })
+    .catch(function(e){
+      console.log('caught');
+      console.log(e);
+    });
+
+}
+
 // returns a promise that delivers the user object in .then();
 function getProfileFromTel(tel) {
   var p = new Promise( function(resolve, reject) {
@@ -412,7 +493,8 @@ server.listen(8080, function() {
   console.log('%s listening at %s', server.name, server.url);
 
 
-  sendTasks('+19056993939');
+  // sendTasks('+19056993939');
+  sendTeam('+19056993939');
   // getProfileFromTel('+17786797693')
   // .then(function(profile){
   //   console.log('profile got', profile);
