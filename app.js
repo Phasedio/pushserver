@@ -370,8 +370,9 @@ function sendTasks(tel, numTasks) {
 * sends the numMembers most recently updated team members and their statuses to tel
 *
 * 1. get the user's id from FireBase 
-* 2. get the user's team members
-*
+* 2. get the user's team's tasks
+* 3. get team's members
+* 4. make and send message
 */
 
 function sendTeam(tel, numMembers) {
@@ -380,7 +381,8 @@ function sendTeam(tel, numMembers) {
   // 1.
   getProfileFromTel(tel)
     .then(function(profile) {
-      console.log('then ', profile.curTeam);
+
+      // 2. get tasks
       ref.child('team/' + profile.curTeam + '/task')
         .orderByChild('time')
         .limitToFirst(numMembers)
@@ -389,6 +391,7 @@ function sendTeam(tel, numMembers) {
           tasks = data.val();
 
           if (!tasks) {
+            // gracefully fail if no recent updates
             console.log('no recent updates');
             client.sendMessage({
               to : tel,
@@ -405,17 +408,24 @@ function sendTeam(tel, numMembers) {
                 return 0;
             });
 
-            // get team users to get member names
+            // 3. get team users to get member names
             ref.child('profile')
               .orderByChild('curTeam')
               .equalTo(profile.curTeam)
               .once('value', function(data) {
-                console.log('else once');
 
                 var users = data.val();
-                if (!users) return;
+                if (!users) {
+                  console.log('no recent updates');
+                  client.sendMessage({
+                    to : tel,
+                    from : PhasedNumber,
+                    body : 'No recent updates!'
+                  });
+                  return;
+                }
                 
-                // make message
+                // 4. make message
                 var msg = 'Recent updates for ' + profile.curTeam + '\r\n';
                 var weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                 var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -429,12 +439,13 @@ function sendTeam(tel, numMembers) {
                   }
                 }
 
+                // send message
                 console.log('sending team update');
                 client.sendMessage({
                   to : tel,
                   from : PhasedNumber,
                   body : msg
-                }, function(e){console.log('sent', e)});
+                });
               });
           }
         });
@@ -443,7 +454,6 @@ function sendTeam(tel, numMembers) {
       console.log('caught');
       console.log(e);
     });
-
 }
 
 // returns a promise that delivers the user object in .then();
@@ -467,8 +477,6 @@ function getProfileFromTel(tel) {
 }
 
 // convert object into array
-// useful for arrays with missing keys
-// eg, [0 = '', 1 = '', 3 = ''];
 var objToArray = function(obj) {
   var newArray = [];
   for (var i in obj) {
@@ -491,15 +499,4 @@ server.post('/slack/uit', uitSlack);
 
 server.listen(8080, function() {
   console.log('%s listening at %s', server.name, server.url);
-
-
-  // sendTasks('+19056993939');
-  sendTeam('+19056993939');
-  // getProfileFromTel('+17786797693')
-  // .then(function(profile){
-  //   console.log('profile got', profile);
-  // })
-  // .catch(function(reason){
-  //   console.log('no profile got', reason);
-  // });
 });
