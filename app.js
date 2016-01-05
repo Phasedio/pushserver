@@ -162,8 +162,8 @@ function uitSlack(req, res, next){
    var phasedUser = '';
    //sendStuff(respondURL);
 
-
-
+   //Get back to slack ASAP w/ responce (must be under 3000 ms)
+   request.post({ url:slack.response_url, body:{"response_type": "in_channel","text":"#update "+slack.user_name+" : "+slack.text}, json:true});
    ref.child('team').child('uit').child('intigration').child('slack').once('value',function(data){
 
      data = data.val();
@@ -189,7 +189,7 @@ function uitSlack(req, res, next){
           long : 0
         }
       };
-      request.post({ url:slack.response_url, body:{"response_type": "in_channel","text":"#update "+slack.user_name+" : "+slack.text}, json:true});
+
       //thisRes.status(200).type('application/json').end();
 
       ref.child('team').child('uit').child('task').child(phasedUser).set(status);
@@ -200,7 +200,7 @@ function uitSlack(req, res, next){
 
     }
    });
-   //res.status(200).type('application/json').end();
+   res.end();//close the responce 
 
 
 // write data to request body
@@ -248,7 +248,7 @@ function smsRecived(req, res, next){
     case 'tasks' :
       sendTasks(msg.From);
       break;
-    case 'team' : 
+    case 'team' :
       sendTeam(msg.From);
       break;
     case 'help' :
@@ -372,7 +372,7 @@ function sendTasks(tel, numTasks) {
 *
 * sends the numMembers most recently updated team members and their statuses to tel
 *
-* 1. get the user's id from FireBase 
+* 1. get the user's id from FireBase
 * 2. get the user's team's tasks
 * 3. get team's members
 * 4. make and send message
@@ -426,7 +426,7 @@ function sendTeam(tel, numMembers) {
                   });
                   return;
                 }
-                
+
                 // 4. make message
                 var msg = 'Recent updates for ' + profile.curTeam + '\r\n';
                 var weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -467,7 +467,7 @@ function sendHelp(tel) {
   console.log('sending a help message');
   var msg = 'How to use the Phased.io SMS service:\r\n' +
     'send a message without a #command to update your status\r\n' +
-    'send #team to get your team\'s recent updates\r\n' + 
+    'send #team to get your team\'s recent updates\r\n' +
     'send #tasks to get your to do list\r\n' +
     'send #help to see these notes again';
   client.sendMessage({
