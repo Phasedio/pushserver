@@ -497,6 +497,46 @@ function getProfileFromTel(tel) {
   return p;
 }
 
+/**
+*
+* a simple welcome to users of the webapp
+*
+*/
+function welcomeWeb(snapshot, key) {
+  var tel = snapshot.val();
+  console.log('sending a welcome message to ' + tel);
+  if (!tel) {
+    console.log('no tel!');
+    return;
+  }
+
+  getProfileFromTel(tel)
+    .then(function(profile){
+      var msg = 'Welcome to Phased.io, ' + profile.name + '!\r\n' +
+        'How to use the Phased.io SMS service:\r\n' +
+        'send a message without a #command to update your status\r\n' +
+        'send #team to get your team\'s recent updates\r\n' +
+        'send #tasks to get your to do list\r\n' +
+        'send #help to see these notes again';
+      client.sendMessage({
+        to: tel,
+        from: PhasedNumber,
+        body: msg
+      });
+
+      // delete number
+      ref.child('newTel/' + snapshot.key()).set(null);
+    })
+    .catch(function(e){
+      console.log('caught');
+      console.log(e);
+    });
+}
+
+ref.child('newTel').on('child_added', welcomeWeb);
+
+
+
 // convert object into array
 var objToArray = function(obj) {
   var newArray = [];
@@ -513,7 +553,7 @@ server.get('/register/:platform/:token/:user/:team/:senderID', register);
 server.get('/push/nudge/:user/:sender', pushNudge);
 server.get('/push/update/:team/:sender/:message', pushUpdate);
 server.get('/sms/colin/:message', twiliPush);
-server.post('/sms/recived', smsRecived);
+server.post('/sms/recived', smsRecived); // gateway for incoming texts
 server.post('/slack', slack);
 server.post('/slack/uit', uitSlack);
 //server.head('/hello/:name', respond);
