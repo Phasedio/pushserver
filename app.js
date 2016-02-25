@@ -13,7 +13,7 @@ var Promise = require('promise');
 
 var ref = new Firebase("https://phaseddev.firebaseio.com/");
 var tokenGenerator = new FirebaseTokenGenerator("0ezGAN4NOlR9NxVR5p2P1SQvSN4c4hUStlxdnohh");
-var token = tokenGenerator.createToken({uid: "modServer", some: "arbitrary", data: "here"});
+var token = tokenGenerator.createToken({uid: "registration-server", some: "arbitrary", data: "here"});
 ref.authWithCustomToken(token, function(error, authData) {
   if (error) {
     console.log("Login Failed!", error);
@@ -200,7 +200,7 @@ function uitSlack(req, res, next){
 
     }
    });
-   res.end();//close the responce 
+   res.end();//close the responce
 
 
 // write data to request body
@@ -239,7 +239,7 @@ function smsRecived(req, res, next){
     hashRoute = text[0];
     text = text[1];
   }
-
+  console.log(hashRoute);
   switch (hashRoute) {
     case 'update' :
       updateStatus(text, msg.From);
@@ -265,9 +265,12 @@ function smsRecived(req, res, next){
 }
 
 function updateStatus(status, tel) {
+  console.log(tel);
+  console.log(status);
   new Firebase("https://phaseddev.firebaseio.com/profile").orderByChild('tel').startAt(tel)
     .endAt(tel)
     .once('value', function(snap) {
+      console.log('got profile');
        var data = snap.val();
        if(data){
          var keys = Object.keys(data);
@@ -289,8 +292,8 @@ function updateStatus(status, tel) {
          };
 
          console.log('updating status...');
-         ref.child('team').child(team).child('task').child(user).set(newStatus);
-         ref.child('team').child(team).child('all').child(user).push(newStatus);
+         ref.child('team').child(team).child('members').child(user).child('currentStatus').set(newStatus);
+         ref.child('team').child(team).child('statuses').push(newStatus);
          console.log('status updated');
        }
     });
@@ -312,7 +315,7 @@ function sendTasks(tel, numTasks) {
   getProfileFromTel(tel)
     .then(function(profile){
       // 2.
-      ref.child("team/" + profile.curTeam + "/assignments/to/" + profile.uid).once('value', function(data) {
+      ref.child("team/" + profile.curTeam + "/projects/0A/columns/0A/cards/0A/tasks").once('value', function(data) {
         taskList = data.val();
         if (!taskList) {
           // no tasks assigned to this user, let them know and gracefully exit;
@@ -324,44 +327,43 @@ function sendTasks(tel, numTasks) {
           });
           return;
         } else {
-          // 3.
-          // there are tasks, get them
-          ref.child('team/' + profile.curTeam + '/assignments/all').orderByChild('assignee')
-            .equalTo(profile.uid)
-            .once('value', function(data) {
-              var myTasks = data.val();
-              if (!myTasks) {
-                console.log('no tasks???', myTasks);
-                return;
+            // 3.
+            // there are tasks, get them
+            var myTasks = [];
+            var key = Object.keys(taskList);
+            for (var i = 0; i < key.length; i++) {
+              if (taskList[key[i]].assigned_to == profile.uid && taskList[key[i]].status != 1) {
+                myTasks.push(taskList[key[i]]);
+                console.log("task added");
               }
-
-              // sort tasks by date since FB only allows one orderBy param
-              // reverse chronologically: most recent assignments first
-              myTasks = objToArray(myTasks);
-              myTasks.sort(function(a, b){
-                  if(a.time < b.time) return 1;
-                  if(a.time > b.time) return -1;
-                  return 0;
-              });
-              // console.log(myTasks);
-
-              // generate message
-              var msg = '',
-                i = 0;
-              for (i; i < myTasks.length && i < numTasks; i++) {
-                msg += '(' + (i+1) +') ' +
-                  myTasks[i].name + '\r\n';
-              }
-              msg =  'Your ' + i + ' most recently assigned tasks:\n\r' + msg;
-              console.log(msg);
-              client.sendMessage({
-                to : tel,
-                from : PhasedNumber,
-                body : msg
-              }, function(e) { console.log(e) });
+            }
+            console.log("Past for");
+            myTasks.sort(function(a, b){
+                if(a.time < b.time) return 1;
+                if(a.time > b.time) return -1;
+                return 0;
             });
+            // console.log(myTasks);
+
+            // generate message
+            var msg = '',
+              i = 0;
+            for (i; i < myTasks.length && i < numTasks; i++) {
+              msg += '(' + (i+1) +') ' +
+                myTasks[i].name + '\r\n';
+            }
+            console.log("Ready to send");
+            msg =  'Your ' + i + ' most recently assigned tasks:\n\r' + msg;
+            //msg = 'this is a post of over 42 charicters and there is more then you can see here but does twilio have a problem with that?';
+            console.log(msg);
+            client.sendMessage({
+              to : tel,
+              from : PhasedNumber,
+              body : msg
+            }, function(e) { console.log(e) });
         }
-      });
+        });
+
     })
     .catch(function(e){
       console.log(e);
@@ -386,8 +388,8 @@ function sendTeam(tel, numMembers) {
     .then(function(profile) {
 
       // 2. get tasks
-      ref.child('team/' + profile.curTeam + '/task')
-        .orderByChild('time')
+      ref.child('team/' + profile.curTeam + '/members')
+        .orderByChild('currentStatus/time')
         .limitToFirst(numMembers)
         .once('value', function(data) {
           tasks = data.val();
@@ -404,6 +406,7 @@ function sendTeam(tel, numMembers) {
           } else {
             // sort tasks reverse chronologically
             tasks = objToArray(tasks);
+
             tasks.sort(function(a, b){
                 if(a.time < b.time) return 1;
                 if(a.time > b.time) return -1;
@@ -417,6 +420,9 @@ function sendTeam(tel, numMembers) {
               .once('value', function(data) {
 
                 var users = data.val();
+                if (users) {
+                  console.log('yes');
+                }
                 if (!users) {
                   console.log('no recent updates');
                   client.sendMessage({
@@ -428,14 +434,15 @@ function sendTeam(tel, numMembers) {
                 }
 
                 // 4. make message
-                var msg = 'Recent updates for ' + profile.curTeam + '\r\n';
+                var msg = 'Recent updates for your team' + '\r\n';
                 var weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
                 var months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
                 for (var i in tasks) {
-                  if (users[tasks[i].user]) {
-                    var date = new Date(tasks[i].time);
-                    msg += users[tasks[i].user].name + ': ' + tasks[i].name + ' ';
+
+                  if (users[tasks[i].currentStatus.user]) {
+                    var date = new Date(tasks[i].currentStatus.time);
+                    msg += users[tasks[i].currentStatus.user].name + ': ' + tasks[i].currentStatus.name + ' ';
                     msg += '(' + weekdays[date.getDay()] + ' ' + months[date.getMonth()] + ' ' + date.getDate() + ')';
                     msg += '\r\n';
                   }
@@ -443,6 +450,7 @@ function sendTeam(tel, numMembers) {
 
                 // send message
                 console.log('sending team update');
+                
                 client.sendMessage({
                   to : tel,
                   from : PhasedNumber,
@@ -488,6 +496,7 @@ function getProfileFromTel(tel) {
           var keys = Object.keys(data);
           var profile = data[keys[0]];
           profile.uid = keys[0];
+          console.log('got profile');
           resolve(profile);
         } else {
           reject('no data');
