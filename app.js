@@ -10,7 +10,7 @@ var curl = require('curlrequest');
 var client = require('twilio')('ACa18b9467c994bf9c72ccc5f23e91f735', '8516dd1bd8336820ec1919dd346c286a');
 var Promise = require('promise');
 
-
+ 
 var ref = new Firebase("https://phaseddev.firebaseio.com/");
 var tokenGenerator = new FirebaseTokenGenerator("0ezGAN4NOlR9NxVR5p2P1SQvSN4c4hUStlxdnohh");
 var token = tokenGenerator.createToken({uid: "modServer", some: "arbitrary", data: "here"});
