@@ -170,9 +170,81 @@ var updateStatus = function(userID, statusText, teamID) {
 	});
 }
 
+/**
+*
+*	makes a task
+*	assumes current team if no teamID supplied.
+*	currently hardcoded to the default project/column/card.
+*
+*	returns a promise.
+*
+*	options.assigned_to should be a Phased user ID
+*	options.deadline should be a timestamp
+*
+*/
+var makeTask = function(userID, taskText, teamID, options) {
+	return new Promise(function(resolve, reject) {
+		FBRef.authWithCustomToken(token, function(error, authData) {
+			if (error) {
+				console.log("FireBase auth failed!", error);
+				reject();
+				return;
+			}
 
-var makeTask = function(userID, task, teamID) {
+			// use teamID if supplied; otherwise get current team
+			if (teamID && teamID != '') {
+				doMakeTask(teamID);
+			} else {
+				getUserTeam(userID).then(doMakeTask, reject);
+			}
 
+			// make a task
+			// add it to the team
+			// give it a "task created" history entry
+			var doMakeTask = function(_teamID) {
+				// hardcorded defaults:
+				var projectID = '0A',
+					columnID = '0A',
+					cardID = '0A';
+
+				// prime task object
+				task = {
+					name : taskText,
+					created_by : userID,
+					assigned_by : userID,
+					created : new Date().getTime()
+				}
+
+				if (options) {
+					if (options.assignee)
+						task.assigned_to = options.assignee;
+					else
+						task.unassigned = true;
+
+					if (options.deadline)
+						task.deadline = options.deadline;
+				}
+
+				// add task to db
+				var newTaskRef = FBRef.child('team/' + _teamID + '/projects/' + projectID + '/columns/' + columnID + '/cards/' + cardID + '/tasks').push(task, function(e) {
+					if (e)
+						reject(e);
+					else
+						resolve();
+				});
+				
+				// update task history
+				newTaskRef.push({
+					time : Firebase.ServerValue.TIMESTAMP,
+					type : 0, // created
+					snapshot : task
+				}, function(e) {
+					if (e)
+						console.log(e); // don't reject here because it could be rejected twice
+				});
+			}
+		});
+	});
 }
 
 /**
