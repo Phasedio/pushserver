@@ -145,15 +145,7 @@ var updateStatus = function(userID, statusText, teamID) {
 			}
 
 			// 1B) otherwise, get the user's current team and then do the update
-			FBRef.child('profile/' + userID + '/curTeam').once('value', function(snap){
-				var curTeam = snap.val();
-				if (!curTeam) {
-					reject();
-					return;
-				} else {
-					doUpdate(curTeam);
-				}
-			});
+			getUserTeam(userID).then(doUpdate, reject);
 		});
 
 		// 2. do the update given a teamID
@@ -178,6 +170,28 @@ var updateStatus = function(userID, statusText, teamID) {
 	});
 }
 
+
+var makeTask = function(userID, task, teamID) {
+
+}
+
+/**
+*
+*	Gets a user's current team
+*	returns a promise. resolve only if team ID returned; reject if not.
+*
+*/
+var getUserTeam = function(userID) {
+	return new Promise(function(resolve, reject){
+		FBRef.child('profile/' + userID + '/curTeam').once('value', function(snap) {
+			var teamID = snap.val();
+			if (!teamID || teamID == '' || teamID == undefined)
+				reject();
+			else
+				resolve(teamID);
+		});
+	});
+}
 
 /**
 *	LEGACY: Customized slack update for UIT
