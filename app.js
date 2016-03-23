@@ -452,8 +452,14 @@ server.get('/push/nudge/:user/:sender', pushNudge);
 server.get('/push/update/:team/:sender/:message', pushUpdate);
 server.get('/sms/colin/:message', twiliPush);
 server.post('/sms/recived', smsRecived); // gateway for incoming texts
-server.post('/slack', phasedSlack.slack);
-server.post('/slack/uit', phasedSlack.uitSlack);
+
+// slack routes
+server.post('/slack/uit', phasedSlack.uitSlack); // dedicated UIT route
+server.post('/slack/update', phasedSlack.update); // /update status
+server.post('/slack/tell', phasedSlack.tell); // tell [user] to [task]
+server.post('/slack/assign', phasedSlack.assign); // assign [task] to [user]
+server.post('/slack/task', phasedSlack.task); // create a [task]
+server.post('/slack/status', phasedSlack.status); // get status for user
 //server.head('/hello/:name', respond);
 
 server.listen(8080, function() {

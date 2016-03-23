@@ -1,21 +1,16 @@
 var request = require('request');
 var url = require('url');
-var ref = new Firebase("https://phaseddev.firebaseio.com/");
+var Promise = require('promise');
+var FBRef = new Firebase("https://phaseddev.firebaseio.com/");
 var tokenGenerator = new FirebaseTokenGenerator("0ezGAN4NOlR9NxVR5p2P1SQvSN4c4hUStlxdnohh");
 var token = tokenGenerator.createToken({uid: "modServer"});
-ref.authWithCustomToken(token, function(error, authData) {
-  if (error) {
-    console.log("Login Failed!", error);
-  } else {
-    console.log("Login Succeeded!", authData);
-  }
-});
+
 
 /**
  *	Posts a status for a Slack Phased user
  *	/update
  */
-exports.slack = function(req, res, next) {
+exports.update = function(req, res, next) {
 	console.log(req.body);
 
 	// Figure out who we are talking to.
@@ -75,9 +70,117 @@ exports.slack = function(req, res, next) {
 	// write data to request body
 }
 
+/**
+*
+*	tell @user to [task]
+*
+*/
+exports.tell = function(res, res, next) {
+
+}
 
 /**
-*	Customized slack update for UIT
+*
+*	assign [task] to @user
+*
+*/
+exports.assign = function(res, res, next) {
+
+}
+
+/**
+*
+*	create a unassigned [task]
+*
+*/
+exports.task = function(res, res, next) {
+
+}
+
+/**
+*
+*	get status for @user
+*
+*/
+exports.status = function(res, res, next) {
+
+}
+
+
+/**
+*
+*	updates a status for a Phased user
+*	assumes current team if teamID isn't supplied
+*
+*	returns a promise. resolve is passed nothing, reject is possibly passed a FB error.
+*
+*	0. auth with firebase
+* 1. A) if teamID supplied, post status immediately
+*	1. B) if not supplied, get it, then post status
+*	2. posting status:
+*		A) push to team
+*		B) if successful, push to user's currentStatus
+*		C) resolve promise
+*/
+var updateStatus = function(userID, statusText, teamID) {
+	return new Promise(function(resolve, reject) {
+		// fail if params are bad
+		if (!userID || !status) {
+			reject();
+			return;
+		}
+
+		// 0. auth with FB
+		FBRef.authWithCustomToken(token, function(error, authData) {
+			if (error) {
+				console.log("FireBase auth failed!", error);
+				reject();
+				return;
+			}
+
+			// 1A) if we're supplied the teamID, do the update immediately
+			if (teamID && teamID != '') {
+				doUpdate(teamID);
+				return;
+			}
+
+			// 1B) otherwise, get the user's current team and then do the update
+			FBRef.child('profile/' + userID + '/curTeam').once('value', function(snap){
+				var curTeam = snap.val();
+				if (!curTeam) {
+					reject();
+					return;
+				} else {
+					doUpdate(curTeam);
+				}
+			});
+		});
+
+		// 2. do the update given a teamID
+		var doUpdate = function(_teamID) {
+			var newStatus = {
+					name: statusText,
+					time: new Date().getTime(),
+					user: userID
+				}
+			// 2A) push status to team
+			FBRef.child('team/' + _teamID + '/statuses').push(newStatus, function(e) {
+				if (e) {
+					reject(e);
+					return;
+				}
+				// 2B) set user's current status
+				FBRef.child('team/' + _teamID + '/members/' + userID + '/currentStatus').set(newStatus, function(e) {
+					resolve(); // 2C) resolve our promise
+				});
+			});
+		}
+	});
+}
+
+
+/**
+*	LEGACY: Customized slack update for UIT
 */
 exports.uitSlack = function(req, res, next) {
 	console.log(req.body);
