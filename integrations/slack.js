@@ -27,39 +27,45 @@ var slackTokens = {
  */
 exports.update = function(req, res, next) {
 	console.log('updating...', req.body);
+	var slackReq = req.body;
 	// 0. verify token
-	if (req.body.token !== slackTokens.update) {
+	if (slackReq.token !== slackTokens.update) {
 		res.end();
 		return;
 	}
 
-	// 1. reply to slack
-	var slack = req.body;
-	request.post({
-		url: slack.response_url,
-		body: {
-			"response_type": "in_channel",
-			"text": "#update " + slack.user_name + " : " + slack.text
-		},
-		json: true
-	});
-
-	// close connection to Slack API PUSH requset
-	res.end();
+	// user didn't enter a status
+	if (!('text' in slackReq) || slackReq.text.length === 0 || slackReq.text === ' ') {
+		res.send(200, {
+			text : 'Whoops, looks like you forgot to add a status! Just write it right after the slash command there.',
+			ephemeral : true
+		});
+		return;
+	} else {
+		res.send(200, {text: "Great, I'll post that status!"});
+	}
 
 	// Post the new status update after authenticating and getting the Phased user ID
 	// 2a)
 	FBRef.authWithCustomToken(token, function(error, authData) {
 		if (error) {
 			console.log("FireBase auth failed!", error);
+			slackReplyError(slackReq.response_url);
 			return;
 		}
 
 		// 2b)
-		getPhasedIDs(slack.user_id, slack.team_id).then(function(args) {
+		getPhasedIDs(slackReq).then(function(args) {
 			// 2c)
-			updateStatus(args.userID, args.teamID, slack.text);
-		});
+			updateStatus(args.userID, args.teamID, slackReq.text).then(function(){
+				slackReply(slackReq.response_url,
+					'Your Phased.io status has been updated.',
+					true,
+					slackReq.text);
+			}, function(){
+				slackReplyError(slackReq.response_url);
+			});
+		}, notLinkedYet);
 	});
 }
 
@@ -230,95 +236,111 @@ var getUserTeam = function(userID) {
 *	REQUIRES AUTHORIZED FBRef.
 *
 *	returns a promise resolved with the Phased userID and teamID
+*	the rejected promise is passed a firebase error OR an object
+*	describing whether the user or team is missing their ID
+*
+*	It works well to set notLinkedYet as the resolve function,
+*	but it's left open in case more fine-grained handling is needed.
 *
 */
-var getPhasedIDs = function(slackUserID, slackTeamID) {
+var getPhasedIDs = function(slackReq) {
+	var slackUserID = slackReq.user_id,
+		slackTeamID = slackReq.team_id;
+
 	return new Promise(function(resolve, reject) {
+		console.log('looking for user');
 		FBRef.child('integrations/slack/users/' + slackUserID).once('value', function(snap) {
 			var userID = snap.val();
 			if (!userID) {
-				reject();
+				reject({missingID : 'user', slackReq : slackReq});
 			} else {
+				console.log('found user, looking for team');
 				FBRef.child('integrations/slack/teams/' + slackTeamID).once('value', function(snap) {
 					var teamID = snap.val();
 					if (!teamID) {
-						reject();
+						reject({missingID : 'team', slackReq : slackReq});
 					} else {
-						resolve({userID:userID, teamID:teamID});
+						resolve({userID : userID, teamID : teamID});
 					}
+				}, function(e) {
+					reject({error : e, slackReq : slackReq});
 				});
 			}
+		}, function(e) {
+			reject({error : e, slackReq : slackReq});
 		});
 	});
+}
+
+
+/**
+*
+*	Simple set of responses for case where user or team hasn't been linked yet.
+*
+*	args should be the reject object from getPhasedIDs,
+*	args.slackReq should be the original req.body
+*
+*/
+var notLinkedYet = function(args) {
+	console.log('notLinkedYet', args);
+	if ('missingID' in args) {
+		if (args.missingID == 'user') {
+			slackReply(args.slackReq.response_url, 
+				'Looks like you haven\'t linked up your Slack and Phased accounts yet. Link your account with the /link command.',
+				true);
+		} else if (args.missingID == 'team') {
+			console.log('team missing');
+			slackReply(args.slackReq.response_url, 'Looks like your team isn\'t hasn\'t linked their Slack and Phased accounts yet. Contact your team administrator to set this up.', true);
+		} else
+			slackReplyError(args.slackReq.response_url);
+	} else {
+		console.log('no missingID');
+		slackReplyError(args.slackReq.response_url);
+	}
+}
+
+/**
+*
+*	Wrapper to add ~*~ syntactical sugar ~*~
+*	to reply to slack
+*
+*	set ephemeral to true to reply only to that user
+*
+*/
+var slackReply = function(url, text, ephemeral, attachment) {
+	console.log('slackReply');
+	var body = {
+			"response_type": ephemeral ? "ephemeral" : "in_channel",
+			"text": text
+		};
+	console.log('doing reply', body);
+	if (attachment)
+		body.attachments = [{text: attachment}];
+	console.log('sending req');
+	request.post({
+		url: url,
+		body: body,
+		json: true
+	});
+};
+
+/**
+*
+*	Standard fail whale
+*
+*/
+var slackReplyError = function(url) {
+	console.log('slackReplyErr');
+	slackReply(url, 
+		'There\'s been an error on our end—sorry!',
+		true);
 }
 
 /**
 *	LEGACY: Customized slack update for UIT
 */
 exports.uitSlack = function(req, res, next) {
-	console.log(req.body);
-	var thisRes = res;
-	//Figure out who we are talking to.
-	var slack = req.body;
-	var skackUser = req.body.user_name;
-	var respondURL = url.parse(req.body.response_url);
-	console.log("space, space, space");
-	//console.log(respondURL);
-	var phasedUser = '';
-	//sendStuff(respondURL);
-
-	//Get back to slack ASAP w/ responce (must be under 3000 ms)
-	request.post({
-		url: slack.response_url,
-		body: {
-			"response_type": "in_channel",
-			"text": "#update " + slack.user_name + " : " + slack.text
-		},
-		json: true
-	});
-	ref.child('team').child('uit').child('intigration').child('slack').once('value', function(data) {
-
-		data = data.val();
-		var keys = Object.keys(data);
-
-		for (var i = 0; i < keys.length; i++) {
-			if (data[keys[i]].slackName == skackUser) {
-				phasedUser = data[keys[i]].phasedName;
-				break;
-			}
-		};
-
-		if (phasedUser) {
-			var status = {
-				name: slack.text,
-				time: new Date().getTime(),
-				user: phasedUser,
-				city: '',
-				weather: '',
-				taskPrefix: '',
-				photo: '',
-				location: {
-					lat: 0,
-					long: 0
-				}
-			};
-
-			//thisRes.status(200).type('application/json').end();
-
-			ref.child('team').child('uit').child('task').child(phasedUser).set(status);
-			ref.child('team').child('uit').child('all').child(phasedUser).push(status);
-
-		} else {
-			request.post({
-				url: slack.response_url,
-				body: {
-					"text": "Sorry! You haven't yet been added to the uit phased team. Please contact Brian Best(@brianbest) for more information. "
-				},
-				json: true
-			});
-
-		}
-	});
-	res.end(); //close the responce 
-	// write data to request body
+	slackReply(req.body.response_url, 'Sorry, the Phased.io Slack integration is down for maintenance. We\'ll be back soon with even better features!');
+	res.end();
+	return;
 }
