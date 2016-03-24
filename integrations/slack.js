@@ -12,7 +12,8 @@ var token = tokenGenerator.createToken({uid: "slack-server"});
 var slackTokens = {
 	update : 'N7etE1hdGQKZ2rHR4hWOPA2N',
 	task : 'IvbJXqmXcMrH2c3vveEEVdoK',
-	tell : 'QIFh8mSnSIrn905VbcWABRm3'
+	tell : 'QIFh8mSnSIrn905VbcWABRm3',
+	link : 'nxCvd9z7Imj2FNdoscrOktM3'
 }
 
 /**
@@ -20,6 +21,73 @@ var slackTokens = {
 **	ROUTES
 **
 */
+
+/**
+*
+*	links a user's slack and phased accounts
+* (not really secure at all because you could give anyone else's email)
+*
+*/
+exports.linkUser = function(req, res, next) {
+	console.log('linking...', req.body);
+	var slackReq = req.body;
+	slackReq.text = slackReq.text.trim();
+	// 0. verify token
+	if (slackReq.token !== slackTokens.link) {
+		res.end();
+		return;
+	}
+
+	// 0. is this an email address?
+	if (!(/.+\@.+\..+/.test(slackReq.text))) { // generous regex
+		res.send(200, {
+			text: 'That doesn\'t look like an email address...'
+		});
+		return;
+	} else {
+		res.send(200, {
+			text: 'Working on it...'
+		});
+	}
+
+	// auth
+	FBRef.authWithCustomToken(token, function(error, authData) {
+		if (error) {
+			console.log("FireBase auth failed!", error);
+			slackReplyError(slackReq.response_url);
+			return;
+		}
+
+		// 1. get phased user for email address
+		FBRef.child('profile').orderByChild('email').equalTo(slackReq.text).once('value', function(snap) {
+			var user = snap.val();
+			var userID = Object.keys(user)[0];
+			console.log('got user', userID, user);
+
+			if (!user) {
+				slackReply(slackReq.response_url,
+					'Whoops, couldn\'t find that email address',
+					true,
+					slackReq.text);
+				return;
+			}
+
+			// now link accounts
+			FBRef.child('integrations/slack/users/' + slackReq.user_id).set(userID, function(err) {
+				if (err)
+					slackReplyError(slackReq.response_url);
+				else
+					slackReply(slackReq.response_url,
+						'Great, you\'re all set up. Try saying "/update Linking up my Slack and Phased accounts"',
+						true);
+			});
+		}, function(e) {
+			console.log('fb err', e);
+			slackReplyError(slackReq.response_url);
+		});
+	});
+}
+
 
 /**
  *	Posts a status for a Slack Phased user
@@ -79,7 +147,7 @@ exports.update = function(req, res, next) {
 
 /**
 *
-*	tell @user to [task]
+*	/tell @user to [task]
 *
 *	1. parse text into @user and task
 *
@@ -123,7 +191,7 @@ exports.tell = function(req, res, next) {
 		res.send(200, {
 			text : 'One sec...'
 		});
-		
+
 		// Get phased userID for assigned_to slack user
 		getPhasedUserID(assigned_to_slack_ID).then(function(assigned_to_phased_ID) {
 			// Get phased IDs for assigning slack user and team

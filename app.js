@@ -458,6 +458,7 @@ server.post('/slack/tell', phasedSlack.tell); // tell [user] to [task]
 server.post('/slack/assign', phasedSlack.assign); // assign [task] to [user]
 server.post('/slack/task', phasedSlack.task); // create a [task]
 server.post('/slack/status', phasedSlack.status); // get status for user
+server.post('/slack/link', phasedSlack.linkUser); // link a user's slack and phased accounts
 //server.head('/hello/:name', respond);
 
 server.listen(8080, function() {
