@@ -1,6 +1,7 @@
 var request = require('request');
 var url = require('url');
 var Promise = require('promise');
+var moment = require('moment');
 
 var Firebase = require("firebase");
 var FirebaseTokenGenerator = require("firebase-token-generator");
@@ -13,7 +14,9 @@ var slackTokens = {
 	update : 'N7etE1hdGQKZ2rHR4hWOPA2N',
 	task : 'IvbJXqmXcMrH2c3vveEEVdoK',
 	tell : 'QIFh8mSnSIrn905VbcWABRm3',
-	link : 'nxCvd9z7Imj2FNdoscrOktM3'
+	link : 'nxCvd9z7Imj2FNdoscrOktM3',
+	whatsup : 'q2Pa5ydGeR6s6attD2GQug35',
+	sup : '8xTUgcyMNSTxX8M4MF3tkTUz'
 }
 
 /**
@@ -62,7 +65,6 @@ exports.linkUser = function(req, res, next) {
 		FBRef.child('profile').orderByChild('email').equalTo(slackReq.text).once('value', function(snap) {
 			var user = snap.val();
 			var userID = Object.keys(user)[0];
-			console.log('got user', userID, user);
 
 			if (!user) {
 				slackReply(slackReq.response_url,
@@ -162,10 +164,6 @@ exports.tell = function(req, res, next) {
 		return;
 	}
 
-	// res.send(200, {
-	// 	text: "This command is _under construction_."
-	// });
-
 	// 1. parse text
 	// 1a) check general format
 	var regex = /^\@\w+\s(to)\s.+/; // @user to some task
@@ -229,7 +227,7 @@ exports.assign = function(req, res, next) {
 
 /**
 *
-*	create a unassigned [task]
+*	create an unassigned [task]
 *
 */
 exports.task = function(req, res, next) {
@@ -282,7 +280,82 @@ exports.task = function(req, res, next) {
 *
 */
 exports.status = function(req, res, next) {
+	console.log('getting status for user', req.body);
+	var slackReq = req.body;
+	slackReq.text = slackReq.text.trim();
 
+	// 0. verify token
+	if (slackReq.token !== slackTokens.whatsup && slackReq.token !== slackTokens.sup) {
+		res.end();
+		return;
+	}
+
+	// early check for username
+	if (slackReq.text.indexOf('@') < 0) {
+		res.send(200, {
+			text: 'That doesn\'t look like a username',
+			attachments : [{ text : 'Use the format "/whatsup @billy"' }]
+		});
+		return;
+	}
+	
+	// clean the username
+	// might end in ? ("/whatsup @johnny?")
+	var user_slack_name = slackReq.text.split('?')[0];
+	user_slack_name = user_slack_name.split('@')[1];
+
+	console.log('getting current status for ' + user_slack_name);
+
+	// 1c) try to find slack user ID
+	getSlackUserIDFromUsername(user_slack_name).then(function(user_slack_ID) {
+		// do quick reply here to be under 3sec
+		res.send(200, {
+			text: 'One sec...'
+		});
+
+		// update slackReq to use with this fn
+		slackReq.user_id = user_slack_ID;
+
+		FBRef.authWithCustomToken(token, function(error, authData) {
+			if (error) {
+				console.log("FireBase auth failed!", error);
+				slackReplyError(slackReq.response_url);
+				return;
+			}
+			// get Phased ID for user and team
+			getPhasedIDs(slackReq).then(function(args) {
+				console.log('got phased IDs', args);
+
+				// get user's current status
+				FBRef.child('team/' + args.teamID + '/members/' + args.userID).once('value', function(snap) {
+					var member = snap.val();
+					console.log('got member', member);
+
+					if (!member) {
+						slackReplyError(slackReq.response_url);
+					} else {
+						slackReply(slackReq.response_url,
+							'@' + user_slack_name + '\'s current status: "' + member.currentStatus.name + '" (' + moment(member.currentStatus.time).fromNow() + ')',
+							true,
+							'Last active ' + moment(member.lastOnline).fromNow()
+						);
+					}
+				});
+			}, function(args) {
+				console.log('err', args);
+				if ('missingID' in args) {
+					if (args.missingID == 'team')
+						slackReply(slackReq.response_url, 'Looks like your team hasn\'t yet linked Slack and Phased accounts.');
+					else if (args.missingID == 'user')
+						slackReply(slackReq.response_url, 'Looks like that user hasn\'t linked their Slack and Phased accounts.');
+				} else {
+					slackReplyError(slackReq.response_url);
+				}
+			});
+		});
+	}, function() {
+		res.send(200, {text: 'Couldn\'t find @' + user_slack_name });
+	});
 }
 
 
@@ -427,6 +500,8 @@ var getSlackUserIDFromUsername = function(username) {
 	return new Promise(function(resolve, reject) {
 		if (username === 'driedstr')
 			resolve('U0FL8P1UL');
+		else if (username == 'brian')
+			resolve('U09M1EW03');
 		else
 			reject();
 	});
