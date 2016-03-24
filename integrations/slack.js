@@ -11,8 +11,15 @@ var token = tokenGenerator.createToken({uid: "slack-server"});
 // tokens to confirm our hit is coming from slack
 var slackTokens = {
 	update : 'N7etE1hdGQKZ2rHR4hWOPA2N',
-	task : 'IvbJXqmXcMrH2c3vveEEVdoK'
+	task : 'IvbJXqmXcMrH2c3vveEEVdoK',
+	tell : 'QIFh8mSnSIrn905VbcWABRm3'
 }
+
+/**
+**
+**	ROUTES
+**
+*/
 
 /**
  *	Posts a status for a Slack Phased user
@@ -74,9 +81,73 @@ exports.update = function(req, res, next) {
 *
 *	tell @user to [task]
 *
+*	1. parse text into @user and task
+*
 */
-exports.tell = function(res, res, next) {
+exports.tell = function(req, res, next) {
+	var slackReq = req.body;
+	console.log('tell:', slackReq);
 
+	// 0. verify token
+	if (slackReq.token !== slackTokens.tell) {
+		res.end();
+		return;
+	}
+
+	// res.send(200, {
+	// 	text: "This command is _under construction_."
+	// });
+
+	// 1. parse text
+	// 1a) check general format
+	var regex = /^\@\w+\s(to)\s.+/; // @user to some task
+	if (!regex.test(slackReq.text)) {
+		res.send(200, {
+			text : 'I don\'t understand what you\'re trying to say.',
+			attachments : [{
+				text : 'Use the format "/tell @billy to make a sandwich"'
+			}]
+		});
+		return;
+	}
+
+	// 1b) split out user and task name
+	var assigned_to_slack_name = slackReq.text.split(' to ')[0].split('@')[1];
+	var taskName = slackReq.text.split(' to ')[1];
+
+	console.log('assigning ' + taskName + ' to ' + assigned_to_slack_name);
+
+	// 1c) try to find slack user ID
+	getSlackUserIDFromUsername(assigned_to_slack_name).then(function(assigned_to_slack_ID) {
+		// do quick reply here to be under 3sec
+		res.send(200, {
+			text : 'One sec...'
+		});
+		
+		// Get phased userID for assigned_to slack user
+		getPhasedUserID(assigned_to_slack_ID).then(function(assigned_to_phased_ID) {
+			// Get phased IDs for assigning slack user and team
+			getPhasedIDs(slackReq).then(function(args) {
+				// we now have all of our info and we can make our task.
+				makeTask(args.userID, args.teamID, taskName, {assigned_to : assigned_to_phased_ID}).then(function(){
+					slackReply(slackReq.response_url,
+						'Your new task has been added to Phased and assigned to @' + assigned_to_slack_name,
+						true,
+						slackReq.text);
+				}, function(){
+					slackReplyError(slackReq.response_url);
+				});
+			}, notLinkedYet);
+		}, function() {
+			slackReply(slackReq.response_url,
+				'@' + assigned_to_slack_name + ' hasn\'t liknked their Slack and Phased accounts yet.',
+				true);
+			return;
+		});
+	}, function() {
+		res.send(200, {text: 'Sorry, I couldn\'t find a match for the user @' + assigned_to_slack_name});
+		return;
+	});
 }
 
 /**
@@ -84,7 +155,7 @@ exports.tell = function(res, res, next) {
 *	assign [task] to @user
 *
 */
-exports.assign = function(res, res, next) {
+exports.assign = function(req, res, next) {
 
 }
 
@@ -142,10 +213,16 @@ exports.task = function(req, res, next) {
 *	get status for @user
 *
 */
-exports.status = function(res, res, next) {
+exports.status = function(req, res, next) {
 
 }
 
+
+/**
+**
+**	HELPER FUNCTIONS
+**
+*/
 
 /**
 *
@@ -271,6 +348,22 @@ var getUserTeam = function(userID) {
 	});
 }
 
+/**
+*
+*	returns a promise that is passed the slack UID
+*
+*	takes the username without the leading @
+*
+*/
+var getSlackUserIDFromUsername = function(username) {
+	return new Promise(function(resolve, reject) {
+		if (username === 'driedstr')
+			resolve('U0FL8P1UL');
+		else
+			reject();
+	});
+}
+
 
 /**
 *
@@ -310,6 +403,22 @@ var getPhasedIDs = function(slackReq) {
 			}
 		}, function(e) {
 			reject({error : e, slackReq : slackReq});
+		});
+	});
+}
+
+/**
+*
+*	really simply get a phased user ID for a slack ID.
+*
+*/
+var getPhasedUserID = function(slackUserID) {
+	return new Promise(function(resolve, reject) {
+		FBRef.child('integrations/slack/users/' + slackUserID).once('value', function(snap) {
+			var userID = snap.val();
+			userID ? resolve(userID) : reject();
+		}, function(){
+			reject();
 		});
 	});
 }
