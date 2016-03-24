@@ -16,7 +16,8 @@ var slackTokens = {
 	tell : 'QIFh8mSnSIrn905VbcWABRm3',
 	link : 'nxCvd9z7Imj2FNdoscrOktM3',
 	whatsup : 'q2Pa5ydGeR6s6attD2GQug35',
-	sup : '8xTUgcyMNSTxX8M4MF3tkTUz'
+	sup : '8xTUgcyMNSTxX8M4MF3tkTUz',
+	assign: 'q6xkAC9MORQxaMmgD7MImzxU'
 }
 
 /**
@@ -182,38 +183,7 @@ exports.tell = function(req, res, next) {
 	var taskName = slackReq.text.split(' to ')[1];
 
 	console.log('assigning ' + taskName + ' to ' + assigned_to_slack_name);
-
-	// 1c) try to find slack user ID
-	getSlackUserIDFromUsername(assigned_to_slack_name).then(function(assigned_to_slack_ID) {
-		// do quick reply here to be under 3sec
-		res.send(200, {
-			text : 'One sec...'
-		});
-
-		// Get phased userID for assigned_to slack user
-		getPhasedUserID(assigned_to_slack_ID).then(function(assigned_to_phased_ID) {
-			// Get phased IDs for assigning slack user and team
-			getPhasedIDs(slackReq).then(function(args) {
-				// we now have all of our info and we can make our task.
-				makeTask(args.userID, args.teamID, taskName, {assigned_to : assigned_to_phased_ID}).then(function(){
-					slackReply(slackReq.response_url,
-						'Your new task has been added to Phased and assigned to @' + assigned_to_slack_name,
-						true,
-						slackReq.text);
-				}, function(){
-					slackReplyError(slackReq.response_url);
-				});
-			}, notLinkedYet);
-		}, function() {
-			slackReply(slackReq.response_url,
-				'@' + assigned_to_slack_name + ' hasn\'t liknked their Slack and Phased accounts yet.',
-				true);
-			return;
-		});
-	}, function() {
-		res.send(200, {text: 'Sorry, I couldn\'t find a match for the user @' + assigned_to_slack_name});
-		return;
-	});
+	giveTaskToSlackUser(slackReq, res, taskName, assigned_to_slack_name);
 }
 
 /**
@@ -222,7 +192,87 @@ exports.tell = function(req, res, next) {
 *
 */
 exports.assign = function(req, res, next) {
+	var slackReq = req.body;
+	console.log('assign:', slackReq);
 
+	// 0. verify token
+	if (slackReq.token !== slackTokens.assign) {
+		res.end();
+		return;
+	}
+
+	// 1. parse text
+	// 1a) check general format
+	var regex = /^.+\s(to)\s\@\w+/; // some task to @user
+	if (!regex.test(slackReq.text)) {
+		res.send(200, {
+			text : 'I don\'t understand what you\'re trying to say.',
+			attachments : [{
+				text : 'Use the format "/assign make a sandwich to @billy"'
+			}]
+		});
+		return;
+	}
+
+	// 1b) split out user and task name
+	var assigned_to_slack_name = slackReq.text.split(' to ')[1].split('@')[1];
+	var taskName = slackReq.text.split(' to ')[0];
+
+	console.log('assigning ' + taskName + ' to ' + assigned_to_slack_name);
+	giveTaskToSlackUser(slackReq, res, taskName, assigned_to_slack_name);
+}
+
+/**
+*
+*	helper for the above two
+*	gives a task to the slack user
+*	sends appropriate slack replies
+*	
+*	makes it so the exported functions are only doing
+*	the different stuff (parsing)
+*
+*/
+var giveTaskToSlackUser = function(slackReq, res, taskName, assigned_to_slack_name) {
+	// 1c) try to find slack user ID
+	getSlackUserIDFromUsername(assigned_to_slack_name).then(function(assigned_to_slack_ID) {
+		// do quick reply here to be under 3sec
+		res.send(200, {
+			text : 'One sec...'
+		});
+
+		// Post the new status update after authenticating and getting the Phased user ID
+		// 2a)
+		FBRef.authWithCustomToken(token, function(error, authData) {
+			if (error) {
+				console.log("FireBase auth failed!", error);
+				slackReplyError(slackReq.response_url);
+				return;
+			}
+			// Get phased userID for assigned_to slack user
+			getPhasedUserID(assigned_to_slack_ID).then(function(assigned_to_phased_ID) {
+				// Get phased IDs for assigning slack user and team
+				getPhasedIDs(slackReq).then(function(args) {
+					// we now have all of our info and we can make our task.
+					makeTask(args.userID, args.teamID, taskName, {assigned_to : assigned_to_phased_ID}).then(function() {
+						slackReply(slackReq.response_url,
+							'Your new task has been added to Phased and assigned to @' + assigned_to_slack_name,
+							true,
+							'Assigned "' + taskName + '"');
+					}, function(){
+						slackReplyError(slackReq.response_url);
+					});
+				}, notLinkedYet);
+			}, function() {
+				slackReply(slackReq.response_url,
+					'@' + assigned_to_slack_name + ' hasn\'t liknked their Slack and Phased accounts yet.',
+					true);
+				return;
+			});
+		});
+	}, function() {
+		res.send(200, {text: 'Sorry, I couldn\'t find a match for the user @' + assigned_to_slack_name});
+		return;
+	});
 }
 
 /**
@@ -440,8 +490,8 @@ var makeTask = function(userID, teamID, taskText, options) {
 		}
 
 		if (options) {
-			if (options.assignee)
-				task.assigned_to = options.assignee;
+			if (options.assigned_to)
+				task.assigned_to = options.assigned_to;
 			else
 				task.unassigned = true;
 
