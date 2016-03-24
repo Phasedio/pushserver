@@ -224,59 +224,6 @@ exports.assign = function(req, res, next) {
 
 /**
 *
-*	helper for the above two
-*	gives a task to the slack user
-*	sends appropriate slack replies
-*	
-*	makes it so the exported functions are only doing
-*	the different stuff (parsing)
-*
-*/
-var giveTaskToSlackUser = function(slackReq, res, taskName, assigned_to_slack_name) {
-	// 1c) try to find slack user ID
-	getSlackUserIDFromUsername(assigned_to_slack_name).then(function(assigned_to_slack_ID) {
-		// do quick reply here to be under 3sec
-		res.send(200, {
-			text : 'One sec...'
-		});
-
-		// Post the new status update after authenticating and getting the Phased user ID
-		// 2a)
-		FBRef.authWithCustomToken(token, function(error, authData) {
-			if (error) {
-				console.log("FireBase auth failed!", error);
-				slackReplyError(slackReq.response_url);
-				return;
-			}
-			// Get phased userID for assigned_to slack user
-			getPhasedUserID(assigned_to_slack_ID).then(function(assigned_to_phased_ID) {
-				// Get phased IDs for assigning slack user and team
-				getPhasedIDs(slackReq).then(function(args) {
-					// we now have all of our info and we can make our task.
-					makeTask(args.userID, args.teamID, taskName, {assigned_to : assigned_to_phased_ID}).then(function() {
-						slackReply(slackReq.response_url,
-							'Your new task has been added to Phased and assigned to @' + assigned_to_slack_name,
-							true,
-							'Assigned "' + taskName + '"');
-					}, function(){
-						slackReplyError(slackReq.response_url);
-					});
-				}, notLinkedYet);
-			}, function() {
-				slackReply(slackReq.response_url,
-					'@' + assigned_to_slack_name + ' hasn\'t liknked their Slack and Phased accounts yet.',
-					true);
-				return;
-			});
-		});
-	}, function() {
-		res.send(200, {text: 'Sorry, I couldn\'t find a match for the user @' + assigned_to_slack_name});
-		return;
-	});
-}
-
-/**
-*
 *	create an unassigned [task]
 *
 */
@@ -517,6 +464,89 @@ var makeTask = function(userID, teamID, taskText, options) {
 				console.log(e); // don't reject here because it could be rejected twice
 		});
 	});
+}
+
+/**
+*
+*	helper for /tell and /assign
+*	gives a task to a slack user
+*	sends appropriate slack replies
+*	
+*	makes it so the exported functions are only doing
+*	the different stuff (parsing)
+*
+*	assigned_to_slack_name should NOT incled the preceding @
+*
+*/
+var giveTaskToSlackUser = function(slackReq, res, taskName, assigned_to_slack_name) {
+	// 1c) try to find slack user ID
+	getSlackUserIDFromUsername(assigned_to_slack_name).then(function(assigned_to_slack_ID) {
+		// do quick reply here to be under 3sec
+		res.send(200, {
+			text : 'One sec...'
+		});
+
+		// Post the new status update after authenticating and getting the Phased user ID
+		// 2a)
+		FBRef.authWithCustomToken(token, function(error, authData) {
+			if (error) {
+				console.log("FireBase auth failed!", error);
+				slackReplyError(slackReq.response_url);
+				return;
+			}
+			// Get phased userID for assigned_to slack user
+			getPhasedUserID(assigned_to_slack_ID).then(function(assigned_to_phased_ID) {
+				// Get phased IDs for assigning slack user and team
+				getPhasedIDs(slackReq).then(function(args) {
+					// we now have all of our info and we can make our task.
+					makeTask(args.userID, args.teamID, taskName, {assigned_to : assigned_to_phased_ID}).then(function() {
+						slackReply(slackReq.response_url,
+							'Your new task has been added to Phased and assigned to @' + assigned_to_slack_name,
+							true,
+							'Assigned "' + taskName + '"');
+					}, function(){
+						slackReplyError(slackReq.response_url);
+					});
+				}, notLinkedYet);
+			}, function() {
+				slackReply(slackReq.response_url,
+					'@' + assigned_to_slack_name + ' hasn\'t liknked their Slack and Phased accounts yet.',
+					true);
+				return;
+			});
+		});
+	}, function() {
+		res.send(200, {text: 'Sorry, I couldn\'t find a match for the user @' + assigned_to_slack_name});
+		return;
+	});
+}
+
+/**
+*
+*	Parses an assignment string with an unknown format
+*
+*	returns object with taskName, assigned_to, and deadline properties
+* (deadline is timestamp)
+*
+*	will always find a taskName, but assigned_to and deadline are optional
+*
+*/
+var parseAssignmentString = function(str) {
+	// 1. is there a user?
+	// (str has @ and only contains /w before next space)
+	var segments = str.split(' '),
+		usernames = [],
+		deadlines = [];
+	for (var i in segments) {
+		if (segments[i].indexOf('@') == 0) {
+			var username = segments[i].split('@')[1];
+			if (/^/w+/.test(username)) {
+				usernames.push(username);
+			}
+		}
+	}
+
+	// 2. is there a deadline?
 }
 
 /**
