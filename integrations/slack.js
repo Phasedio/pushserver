@@ -10,7 +10,8 @@ var token = tokenGenerator.createToken({uid: "slack-server"});
 
 // tokens to confirm our hit is coming from slack
 var slackTokens = {
-	update : 'N7etE1hdGQKZ2rHR4hWOPA2N'
+	update : 'N7etE1hdGQKZ2rHR4hWOPA2N',
+	task : 'IvbJXqmXcMrH2c3vveEEVdoK'
 }
 
 /**
@@ -92,8 +93,48 @@ exports.assign = function(res, res, next) {
 *	create a unassigned [task]
 *
 */
-exports.task = function(res, res, next) {
+exports.task = function(req, res, next) {
+	console.log('making unassigned task...', req.body);
+	var slackReq = req.body;
+	// 0. verify token
+	if (slackReq.token !== slackTokens.task) {
+		res.end();
+		return;
+	}
 
+	// user didn't enter a status
+	if (!('text' in slackReq) || slackReq.text.length === 0 || slackReq.text === ' ') {
+		res.send(200, {
+			text : 'Whoops, looks like you forgot to add a task name! Just write it right after the slash command there.',
+			ephemeral : true
+		});
+		return;
+	} else {
+		res.send(200, {text: "I'll make that task."});
+	}
+
+	// Post the new status update after authenticating and getting the Phased user ID
+	// 2a)
+	FBRef.authWithCustomToken(token, function(error, authData) {
+		if (error) {
+			console.log("FireBase auth failed!", error);
+			slackReplyError(slackReq.response_url);
+			return;
+		}
+
+		// 2b)
+		getPhasedIDs(slackReq).then(function(args) {
+			// 2c)
+			makeTask(args.userID, args.teamID, slackReq.text).then(function(){
+				slackReply(slackReq.response_url,
+					'Your new task has been added to Phased.',
+					true,
+					slackReq.text);
+			}, function(){
+				slackReplyError(slackReq.response_url);
+			});
+		}, notLinkedYet);
+	});
 }
 
 /**
@@ -176,7 +217,8 @@ var makeTask = function(userID, teamID, taskText, options) {
 			name : taskText,
 			created_by : userID,
 			assigned_by : userID,
-			created : new Date().getTime()
+			status : 2, // assigned
+			time : new Date().getTime()
 		}
 
 		if (options) {
@@ -198,7 +240,7 @@ var makeTask = function(userID, teamID, taskText, options) {
 		});
 		
 		// update task history
-		newTaskRef.push({
+		newTaskRef.child('history').push({
 			time : Firebase.ServerValue.TIMESTAMP,
 			type : 0, // created
 			snapshot : task
