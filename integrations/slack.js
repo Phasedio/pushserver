@@ -1,25 +1,40 @@
 var request = require('request');
 var url = require('url');
 var Promise = require('promise');
+
+var Firebase = require("firebase");
+var FirebaseTokenGenerator = require("firebase-token-generator");
 var FBRef = new Firebase("https://phaseddev.firebaseio.com/");
 var tokenGenerator = new FirebaseTokenGenerator("0ezGAN4NOlR9NxVR5p2P1SQvSN4c4hUStlxdnohh");
-var token = tokenGenerator.createToken({uid: "modServer"});
+var token = tokenGenerator.createToken({uid: "slack-server"});
 
+// tokens to confirm our hit is coming from slack
+var slackTokens = {
+	update : 'N7etE1hdGQKZ2rHR4hWOPA2N'
+}
 
 /**
  *	Posts a status for a Slack Phased user
  *	/update
+ *
+ *	1. immediately reply to slack
+ *		a) send them a post request
+ *		b) shut down their post request with 200
+ *	2. post to phased FB
+ *		a) auth with FB
+ *		b) get slack user's Phased ID
+ *		c) update their status
  */
 exports.update = function(req, res, next) {
-	console.log(req.body);
+	console.log('updating...', req.body);
+	// 0. verify token
+	if (req.body.token !== slackTokens.update) {
+		res.end();
+		return;
+	}
 
-	// Figure out who we are talking to.
+	// 1. reply to slack
 	var slack = req.body;
-	var skackUser = req.body.user_name;
-	var respondURL = url.parse(req.body.response_url);
-	var phasedUser = '';
-
-	// send response to slack immediately
 	request.post({
 		url: slack.response_url,
 		body: {
@@ -30,44 +45,22 @@ exports.update = function(req, res, next) {
 	});
 
 	// close connection to Slack API PUSH requset
-	res.status(200).type('application/json').end();
+	res.end();
 
-	// get Phased user from FireBase
-	// first get list of all slack users
-	ref.child('team').child('Phased').child('intigration').child('slack').once('value', function(data) {
-		data = data.val();
-		var keys = Object.keys(data);
-
-		// loop through everyone to get user matching slack username
-		for (var i = 0; i < keys.length; i++) {
-			if (data[keys[i]].slackName == skackUser) {
-				phasedUser = data[keys[i]].phasedName;
-				break;
-			}
-		};
-
-		// if we've found that user, make the update
-		if (phasedUser) {
-			var status = {
-				name: slack.text,
-				time: new Date().getTime(),
-				user: phasedUser,
-				city: '',
-				weather: '',
-				taskPrefix: '',
-				photo: '',
-				location: {
-					lat: 0,
-					long: 0
-				}
-			};
-
-			// update that user's status
-			ref.child('team').child('Phased').child('task').child(phasedUser).set(status);
-			ref.child('team').child('Phased').child('all').child(phasedUser).push(status);
+	// Post the new status update after authenticating and getting the Phased user ID
+	// 2a)
+	FBRef.authWithCustomToken(token, function(error, authData) {
+		if (error) {
+			console.log("FireBase auth failed!", error);
+			return;
 		}
+
+		// 2b)
+		getPhasedIDs(slack.user_id, slack.team_id).then(function(args) {
+			// 2c)
+			updateStatus(args.userID, args.teamID, slack.text);
+		});
 	});
-	// write data to request body
 }
 
 /**
@@ -110,11 +103,10 @@ exports.status = function(res, res, next) {
 /**
 *
 *	updates a status for a Phased user
-*	assumes current team if teamID isn't supplied
+*	REQUIRES AUTHORIZED FBRef
 *
 *	returns a promise. resolve is passed nothing, reject is possibly passed a FB error.
 *
-*	0. auth with firebase
 * 1. A) if teamID supplied, post status immediately
 *	1. B) if not supplied, get it, then post status
 *	2. posting status:
@@ -122,57 +114,41 @@ exports.status = function(res, res, next) {
 *		B) if successful, push to user's currentStatus
 *		C) resolve promise
 */
-var updateStatus = function(userID, statusText, teamID) {
+var updateStatus = function(userID, teamID, statusText) {
 	return new Promise(function(resolve, reject) {
 		// fail if params are bad
-		if (!userID || !status) {
+		if (!userID || !statusText) {
 			reject();
 			return;
 		}
 
-		// 0. auth with FB
-		FBRef.authWithCustomToken(token, function(error, authData) {
-			if (error) {
-				console.log("FireBase auth failed!", error);
-				reject();
-				return;
-			}
-
-			// 1A) if we're supplied the teamID, do the update immediately
-			if (teamID && teamID != '') {
-				doUpdate(teamID);
-				return;
-			}
-
-			// 1B) otherwise, get the user's current team and then do the update
-			getUserTeam(userID).then(doUpdate, reject);
-		});
-
 		// 2. do the update given a teamID
-		var doUpdate = function(_teamID) {
-			var newStatus = {
-					name: statusText,
-					time: new Date().getTime(),
-					user: userID
-				}
-			// 2A) push status to team
-			FBRef.child('team/' + _teamID + '/statuses').push(newStatus, function(e) {
-				if (e) {
-					reject(e);
-					return;
-				}
-				// 2B) set user's current status
-				FBRef.child('team/' + _teamID + '/members/' + userID + '/currentStatus').set(newStatus, function(e) {
-					resolve(); // 2C) resolve our promise
-				});
+		var newStatus = {
+				name: statusText,
+				time: new Date().getTime(),
+				user: userID
+			}
+
+		// 2A) push status to team
+		FBRef.child('team/' + teamID + '/statuses').push(newStatus, function(e) {
+			if (e) {
+				console.log(e);
+				reject(e);
+				return;
+			}
+			// 2B) set user's current status
+			FBRef.child('team/' + teamID + '/members/' + userID + '/currentStatus').set(newStatus, function(e) {
+				resolve(); // 2C) resolve our promise
 			});
-		}
+		});
 	});
 }
 
 /**
 *
 *	makes a task
+*	REQUIRES AUTHORIZED FBRef
+*
 *	assumes current team if no teamID supplied.
 *	currently hardcoded to the default project/column/card.
 *
@@ -182,67 +158,47 @@ var updateStatus = function(userID, statusText, teamID) {
 *	options.deadline should be a timestamp
 *
 */
-var makeTask = function(userID, taskText, teamID, options) {
+var makeTask = function(userID, teamID, taskText, options) {
 	return new Promise(function(resolve, reject) {
-		FBRef.authWithCustomToken(token, function(error, authData) {
-			if (error) {
-				console.log("FireBase auth failed!", error);
-				reject();
-				return;
-			}
+		// hardcorded defaults:
+		var projectID = '0A',
+			columnID = '0A',
+			cardID = '0A';
 
-			// use teamID if supplied; otherwise get current team
-			if (teamID && teamID != '') {
-				doMakeTask(teamID);
-			} else {
-				getUserTeam(userID).then(doMakeTask, reject);
-			}
+		// prime task object
+		task = {
+			name : taskText,
+			created_by : userID,
+			assigned_by : userID,
+			created : new Date().getTime()
+		}
 
-			// make a task
-			// add it to the team
-			// give it a "task created" history entry
-			var doMakeTask = function(_teamID) {
-				// hardcorded defaults:
-				var projectID = '0A',
-					columnID = '0A',
-					cardID = '0A';
+		if (options) {
+			if (options.assignee)
+				task.assigned_to = options.assignee;
+			else
+				task.unassigned = true;
 
-				// prime task object
-				task = {
-					name : taskText,
-					created_by : userID,
-					assigned_by : userID,
-					created : new Date().getTime()
-				}
+			if (options.deadline)
+				task.deadline = options.deadline;
+		}
 
-				if (options) {
-					if (options.assignee)
-						task.assigned_to = options.assignee;
-					else
-						task.unassigned = true;
-
-					if (options.deadline)
-						task.deadline = options.deadline;
-				}
-
-				// add task to db
-				var newTaskRef = FBRef.child('team/' + _teamID + '/projects/' + projectID + '/columns/' + columnID + '/cards/' + cardID + '/tasks').push(task, function(e) {
-					if (e)
-						reject(e);
-					else
-						resolve();
-				});
-				
-				// update task history
-				newTaskRef.push({
-					time : Firebase.ServerValue.TIMESTAMP,
-					type : 0, // created
-					snapshot : task
-				}, function(e) {
-					if (e)
-						console.log(e); // don't reject here because it could be rejected twice
-				});
-			}
+		// add task to db
+		var newTaskRef = FBRef.child('team/' + teamID + '/projects/' + projectID + '/columns/' + columnID + '/cards/' + cardID + '/tasks').push(task, function(e) {
+			if (e)
+				reject(e);
+			else
+				resolve();
+		});
+		
+		// update task history
+		newTaskRef.push({
+			time : Firebase.ServerValue.TIMESTAMP,
+			type : 0, // created
+			snapshot : task
+		}, function(e) {
+			if (e)
+				console.log(e); // don't reject here because it could be rejected twice
 		});
 	});
 }
@@ -250,6 +206,8 @@ var makeTask = function(userID, taskText, teamID, options) {
 /**
 *
 *	Gets a user's current team
+*	REQUIRES AUTHORIZED FBRef.
+*
 *	returns a promise. resolve only if team ID returned; reject if not.
 *
 */
@@ -261,6 +219,35 @@ var getUserTeam = function(userID) {
 				reject();
 			else
 				resolve(teamID);
+		});
+	});
+}
+
+
+/**
+*
+*	Gets a Phased user ID and teamID from their slack IDs.
+*	REQUIRES AUTHORIZED FBRef.
+*
+*	returns a promise resolved with the Phased userID and teamID
+*
+*/
+var getPhasedIDs = function(slackUserID, slackTeamID) {
+	return new Promise(function(resolve, reject) {
+		FBRef.child('integrations/slack/users/' + slackUserID).once('value', function(snap) {
+			var userID = snap.val();
+			if (!userID) {
+				reject();
+			} else {
+				FBRef.child('integrations/slack/teams/' + slackTeamID).once('value', function(snap) {
+					var teamID = snap.val();
+					if (!teamID) {
+						reject();
+					} else {
+						resolve({userID:userID, teamID:teamID});
+					}
+				});
+			}
 		});
 	});
 }
