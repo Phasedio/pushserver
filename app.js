@@ -18,8 +18,6 @@ var token = tokenGenerator.createToken({uid: "modServer", some: "arbitrary", dat
 ref.authWithCustomToken(token, function(error, authData) {
   if (error) {
     console.log("Login Failed!", error);
-  } else {
-    console.log("Login Succeeded!", authData);
   }
 });
 var APP_ID = 'S1R7aIPJPXKPPF2cOcFkJ9zluitibxyOjjvUZWfg';
