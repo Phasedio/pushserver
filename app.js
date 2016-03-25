@@ -10,6 +10,7 @@ var curl = require('curlrequest');
 var client = require('twilio')('ACa18b9467c994bf9c72ccc5f23e91f735', '8516dd1bd8336820ec1919dd346c286a');
 var Promise = require('promise');
 
+var phasedSlack = require('./integrations/slack');
  
 var ref = new Firebase("https://phaseddev.firebaseio.com/");
 var tokenGenerator = new FirebaseTokenGenerator("0ezGAN4NOlR9NxVR5p2P1SQvSN4c4hUStlxdnohh");
@@ -17,8 +18,6 @@ var token = tokenGenerator.createToken({uid: "modServer", some: "arbitrary", dat
 ref.authWithCustomToken(token, function(error, authData) {
   if (error) {
     console.log("Login Failed!", error);
-  } else {
-    console.log("Login Succeeded!", authData);
   }
 });
 var APP_ID = 'S1R7aIPJPXKPPF2cOcFkJ9zluitibxyOjjvUZWfg';
@@ -100,111 +99,7 @@ app.sendPush(notification, function(err, resp){
 });
 }
 
-function slack(req, res, next){
-  console.log(req.body);
-   //Figure out who we are talking to.
-   var slack = req.body;
-   var skackUser = req.body.user_name;
-   var respondURL = url.parse(req.body.response_url);
-   console.log("space, space, space");
-   //console.log(respondURL);
-   var phasedUser = '';
-   //sendStuff(respondURL);
-   request.post({ url:slack.response_url, body:{"response_type": "in_channel","text":"#update "+slack.user_name+" : "+slack.text}, json:true});
-   res.status(200).type('application/json').end();
 
-
-   ref.child('team').child('Phased').child('intigration').child('slack').once('value',function(data){
-
-     data = data.val();
-
-     var keys = Object.keys(data);
-     for (var i = 0; i < keys.length; i++) {
-       if (data[keys[i]].slackName == skackUser){
-          phasedUser = data[keys[i]].phasedName;
-          break;
-       }
-     };
-     if(phasedUser){
-      var status = {
-        name: slack.text,
-        time: new Date().getTime(),
-        user:phasedUser,
-        city:'',
-        weather:'',
-        taskPrefix : '',
-        photo : '',
-        location:{
-          lat : 0,
-          long : 0
-        }
-      };
-
-      ref.child('team').child('Phased').child('task').child(phasedUser).set(status);
-      ref.child('team').child('Phased').child('all').child(phasedUser).push(status);
-     }
-   });
-
-   //
-
-
-// write data to request body
-}
-function uitSlack(req, res, next){
-  console.log(req.body);
-  var thisRes = res;
-   //Figure out who we are talking to.
-   var slack = req.body;
-   var skackUser = req.body.user_name;
-   var respondURL = url.parse(req.body.response_url);
-   console.log("space, space, space");
-   //console.log(respondURL);
-   var phasedUser = '';
-   //sendStuff(respondURL);
-
-   //Get back to slack ASAP w/ responce (must be under 3000 ms)
-   request.post({ url:slack.response_url, body:{"response_type": "in_channel","text":"#update "+slack.user_name+" : "+slack.text}, json:true});
-   ref.child('team').child('uit').child('intigration').child('slack').once('value',function(data){
-
-     data = data.val();
-
-     var keys = Object.keys(data);
-     for (var i = 0; i < keys.length; i++) {
-       if (data[keys[i]].slackName == skackUser){
-          phasedUser = data[keys[i]].phasedName;
-          break;
-       }
-     };
-     if(phasedUser){
-      var status = {
-        name: slack.text,
-        time: new Date().getTime(),
-        user:phasedUser,
-        city:'',
-        weather:'',
-        taskPrefix : '',
-        photo : '',
-        location:{
-          lat : 0,
-          long : 0
-        }
-      };
-
-      //thisRes.status(200).type('application/json').end();
-
-      ref.child('team').child('uit').child('task').child(phasedUser).set(status);
-      ref.child('team').child('uit').child('all').child(phasedUser).push(status);
-
-    }else{
-      request.post({ url:slack.response_url, body:{"text":"Sorry! You haven't yet been added to the uit phased team. Please contact Brian Best(@brianbest) for more information. "}, json:true});
-
-    }
-   });
-   res.end();//close the responce 
-
-
-// write data to request body
-}
 
 function twiliPush(req, res, next){
   //Send an SMS text message
@@ -225,6 +120,7 @@ function twiliPush(req, res, next){
       }
   });
 }
+
 function smsRecived(req, res, next){
   console.log('sms received');
   var msg = req.body;
@@ -554,8 +450,15 @@ server.get('/push/nudge/:user/:sender', pushNudge);
 server.get('/push/update/:team/:sender/:message', pushUpdate);
 server.get('/sms/colin/:message', twiliPush);
 server.post('/sms/recived', smsRecived); // gateway for incoming texts
-server.post('/slack', slack);
-server.post('/slack/uit', uitSlack);
+
+// slack routes
+server.post('/slack/uit', phasedSlack.uitSlack); // dedicated UIT route
+server.post('/slack/update', phasedSlack.update); // /update status
+server.post('/slack/tell', phasedSlack.tell); // tell [user] to [task]
+server.post('/slack/assign', phasedSlack.assign); // assign [task] to [user]
+server.post('/slack/task', phasedSlack.task); // create a [task]
+server.post('/slack/status', phasedSlack.status); // get status for user
+server.post('/slack/link', phasedSlack.linkUser); // link a user's slack and phased accounts
 //server.head('/hello/:name', respond);
 
 server.listen(8080, function() {
