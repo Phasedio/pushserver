@@ -10,8 +10,6 @@ var curl = require('curlrequest');
 var client = require('twilio')('ACa18b9467c994bf9c72ccc5f23e91f735', '8516dd1bd8336820ec1919dd346c286a');
 var Promise = require('promise');
 
-var phasedSlack = require('./integrations/slack');
- 
 var ref = new Firebase("https://phaseddev.firebaseio.com/");
 var tokenGenerator = new FirebaseTokenGenerator("0ezGAN4NOlR9NxVR5p2P1SQvSN4c4hUStlxdnohh");
 var token = tokenGenerator.createToken({uid: "registration-server", some: "arbitrary", data: "here"});
@@ -459,15 +457,6 @@ server.get('/push/nudge/:user/:sender', pushNudge);
 server.get('/push/update/:team/:sender/:message', pushUpdate);
 server.get('/sms/colin/:message', twiliPush);
 server.post('/sms/recived', smsRecived); // gateway for incoming texts
-
-// slack routes
-server.post('/slack/uit', phasedSlack.uitSlack); // dedicated UIT route
-server.post('/slack/update', phasedSlack.update); // /update status
-server.post('/slack/tell', phasedSlack.tell); // tell [user] to [task]
-server.post('/slack/assign', phasedSlack.assign); // assign [task] to [user]
-server.post('/slack/task', phasedSlack.task); // create a [task]
-server.post('/slack/status', phasedSlack.status); // get status for user
-server.post('/slack/link', phasedSlack.linkUser); // link a user's slack and phased accounts
 //server.head('/hello/:name', respond);
 
 server.listen(8080, function() {
