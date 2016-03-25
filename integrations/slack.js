@@ -534,17 +534,17 @@ var giveTaskToSlackUser = function(slackReq, res, taskName, assigned_to_slack_na
 var parseAssignmentString = function(str) {
 	// 1. is there a user?
 	// (str has @ and only contains /w before next space)
-	var segments = str.split(' '),
-		usernames = [],
-		deadlines = [];
-	for (var i in segments) {
-		if (segments[i].indexOf('@') == 0) {
-			var username = segments[i].split('@')[1];
-			if (/^/w+/.test(username)) {
-				usernames.push(username);
-			}
-		}
-	}
+	// var segments = str.split(' '),
+	// 	usernames = [],
+	// 	deadlines = [];
+	// for (var i in segments) {
+	// 	if (segments[i].indexOf('@') == 0) {
+	// 		var username = segments[i].split('@')[1];
+	// 		if (/^/w+/.test(username)) {
+	// 			usernames.push(username);
+	// 		}
+	// 	}
+	// }
 
 	// 2. is there a deadline?
 }
@@ -614,11 +614,11 @@ var getPhasedIDs = function(slackReq) {
 			} else {
 				console.log('found user, looking for team');
 				FBRef.child('integrations/slack/teams/' + slackTeamID).once('value', function(snap) {
-					var teamID = snap.val();
-					if (!teamID) {
+					var team = snap.val();
+					if (!team) {
 						reject({missingID : 'team', slackReq : slackReq});
 					} else {
-						resolve({userID : userID, teamID : teamID});
+						resolve({userID : userID, teamID : team.teamID});
 					}
 				}, function(e) {
 					reject({error : e, slackReq : slackReq});
